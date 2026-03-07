@@ -4,17 +4,37 @@ from datetime import datetime, timedelta
 import os
 from dotenv import load_dotenv
 
-# load env variables
+# ------------------------------
+# Load Environment Variables
+# ------------------------------
 load_dotenv()
 
 app = Flask(__name__)
 
-# Authentication API Key from ENV
 API_KEY = os.getenv("API_KEY")
 
 
 # ------------------------------
-# Generate Mock Data (500 rows)
+# Authentication Middleware
+# ------------------------------
+@app.before_request
+def authenticate():
+
+    # Allow health check endpoint
+    if request.path == "/":
+        return None
+
+    api_key = request.headers.get("x-api-key")
+
+    if api_key != API_KEY:
+        return jsonify({
+            "status": "failed",
+            "message": "Unauthorized - Invalid API Key"
+        }), 401
+
+
+# ------------------------------
+# Generate Mock Data
 # ------------------------------
 def generate_data():
 
@@ -50,36 +70,65 @@ DATA = generate_data()
 
 
 # ------------------------------
-# Authentication check
-# ------------------------------
-def check_auth():
-    api_key = request.headers.get("x-api-key")
-    return api_key == API_KEY
-
-
-# ------------------------------
-# API Endpoint
+# Data API with Pagination + Date Filter
 # ------------------------------
 @app.route("/data", methods=["GET"])
 def get_data():
 
-    if not check_auth():
-        return jsonify({"error": "Unauthorized"}), 401
+    page = int(request.args.get("page", 1))
+    limit = int(request.args.get("limit", 50))
 
-    return jsonify(DATA)
+    start_date = request.args.get("start_date")
+    end_date = request.args.get("end_date")
+
+    filtered_data = DATA
+
+    # Date Filtering
+    if start_date:
+        filtered_data = [
+            r for r in filtered_data
+            if r["created_date"] >= start_date
+        ]
+
+    if end_date:
+        filtered_data = [
+            r for r in filtered_data
+            if r["created_date"] <= end_date
+        ]
+
+    # Pagination
+    start = (page - 1) * limit
+    end = start + limit
+
+    paginated_data = filtered_data[start:end]
+
+    return jsonify({
+        "page": page,
+        "limit": limit,
+        "total_records": len(filtered_data),
+        "data": paginated_data
+    })
 
 
 # ------------------------------
-# Health Check
+# Health Check Endpoint
 # ------------------------------
 @app.route("/")
 def home():
-    return jsonify({"message": "Mock API Running"})
+    return jsonify({
+        "message": "Mock API Running",
+        "status": "healthy"
+    })
 
 
 # ------------------------------
-# Run App
+# Run App (Required for Render)
 # ------------------------------
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))   # needed for Render
-    app.run(host="0.0.0.0", port=port)
+
+    port = int(os.environ.get("PORT", 5000))
+
+    app.run(
+        host="0.0.0.0",
+        port=port
+    )
